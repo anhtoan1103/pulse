@@ -1,0 +1,16 @@
+# Secrets — never commit the real .env (see pulse-security.md #5)
+.env
+.env.local
+
+# Rust backend
+backend/target/
+
+# Next.js frontend (frontend/ also has its own .gitignore; kept here too
+# in case anything is ever built from the repo root)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# OS / editor
+.DS_Store
+Thumbs.db
