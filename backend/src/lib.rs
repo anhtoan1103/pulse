@@ -5,6 +5,7 @@
 //! and (later) domain logic live in one place instead of being duplicated.
 
 pub mod config;
+pub mod db;
 
 /// Initializes `tracing` with an env-filter (`RUST_LOG`, default `info`).
 /// Call once at the top of each binary's `main()`.

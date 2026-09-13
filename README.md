@@ -11,12 +11,12 @@ AI design).
 
 ## Status
 
-Skeleton stage (implement-order step 1 of
-[`docs/pulse-project-context.md`](docs/pulse-project-context.md) §6):
-repo layout, Docker Compose (Postgres + Redis), a bare Axum API skeleton
-(`/health`), a bare worker loop skeleton, and a default Next.js + TypeScript
-+ Tailwind app — nothing functional yet. Next step is the database
-migrations (step 2).
+Implement-order step 2 of
+[`docs/pulse-project-context.md`](docs/pulse-project-context.md) §6 done:
+SQLx migrations for the full schema in
+[`docs/pulse-database-schema.md`](docs/pulse-database-schema.md)
+(`backend/migrations/`), applied automatically by the API server on startup.
+Still no user-facing features — next step is auth (step 3).
 
 ## Tech stack
 
@@ -74,7 +74,18 @@ builds — Docker and CI both build on Linux and are unaffected.
 ## Testing
 
 - Backend: `cargo test` (integration-test-first per
-  [`docs/pulse-api-spec.md`](docs/pulse-api-spec.md) §9).
+  [`docs/pulse-api-spec.md`](docs/pulse-api-spec.md) §9). Needs a running
+  Postgres (`docker compose up -d postgres`) and `DATABASE_URL` set (the
+  `.env` value works) — `#[sqlx::test]` creates a throwaway database per test
+  and applies the migrations to it, so dev data is never touched.
+
+### Database migrations
+
+Plain SQL files in `backend/migrations/`, embedded into the binary at compile
+time (`sqlx::migrate!()`). The `api` binary applies pending ones on startup;
+the `worker` never migrates. To add one, create
+`backend/migrations/<YYYYMMDDHHMMSS>_<description>.sql` — never edit a
+migration that has already been applied anywhere.
 - Frontend: TBD when dashboard work starts.
 - CI (`.github/workflows/ci.yml`) runs fmt/clippy/test/build for backend
   and lint/build for frontend on every push/PR to `main`.
