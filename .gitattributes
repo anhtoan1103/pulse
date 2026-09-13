@@ -1,0 +1,3 @@
+# SQLx checksums migration file bytes — CRLF conversion on a Windows checkout
+# would make an already-applied migration look "modified" and block startup.
+backend/migrations/*.sql text eol=lf
