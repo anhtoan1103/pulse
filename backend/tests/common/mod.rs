@@ -13,10 +13,11 @@ use pulse_backend::{
     app::{self, AppState},
     config::AuthConfig,
     rate_limit::RateLimiter,
+    ssrf::HostResolver,
 };
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use std::{net::SocketAddr, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
 use tower::ServiceExt;
 
 pub const TEST_JWT_SECRET: &str = "test-secret-that-is-at-least-32-bytes-long";
@@ -31,6 +32,27 @@ pub fn auth_config() -> AuthConfig {
     }
 }
 
+/// Fake DNS so tests never depend on the network:
+/// - `api.example.com`, `status.example.org` → public addresses
+/// - `internal.example.com` → private address (SSRF must reject)
+/// - `rebind.example.com` → one public + one loopback record (must reject)
+/// - anything else → unresolvable
+pub fn test_resolver() -> HostResolver {
+    let ip = |s: &str| s.parse().unwrap();
+    HostResolver::Static(HashMap::from([
+        ("api.example.com".into(), vec![ip("93.184.215.14")]),
+        (
+            "status.example.org".into(),
+            vec![ip("2606:2800:21f:cb07:6820:80da:af6b:8b2c")],
+        ),
+        ("internal.example.com".into(), vec![ip("10.0.0.5")]),
+        (
+            "rebind.example.com".into(),
+            vec![ip("93.184.215.14"), ip("127.0.0.1")],
+        ),
+    ]))
+}
+
 #[derive(Clone)]
 pub struct TestApp {
     pub state: AppState,
@@ -41,7 +63,8 @@ impl TestApp {
     /// App with a rate limiter loose enough that ordinary tests never hit it.
     pub fn new(pool: PgPool) -> Self {
         let state = AppState::new(pool, &auth_config())
-            .with_auth_rate_limiter(RateLimiter::new(1_000, Duration::from_secs(60)));
+            .with_auth_rate_limiter(RateLimiter::new(1_000, Duration::from_secs(60)))
+            .with_resolver(test_resolver());
         Self::from_state(state)
     }
 

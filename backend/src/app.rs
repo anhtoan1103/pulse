@@ -4,8 +4,10 @@
 use crate::{
     auth::{self, token::JwtKeys},
     config::AuthConfig,
+    endpoints,
     error::ApiError,
     rate_limit::RateLimiter,
+    ssrf::HostResolver,
 };
 use axum::{Router, extract::State, http::StatusCode, routing::get};
 use sqlx::PgPool;
@@ -23,6 +25,8 @@ pub struct AppState {
     pub jwt: Arc<JwtKeys>,
     pub auth_rate_limiter: Arc<RateLimiter>,
     pub client_ip_header: Option<Arc<str>>,
+    /// DNS for SSRF validation of monitored URLs.
+    pub resolver: Arc<HostResolver>,
 }
 
 impl AppState {
@@ -35,6 +39,7 @@ impl AppState {
             )),
             auth_rate_limiter: Arc::new(RateLimiter::new(AUTH_RATE_LIMIT, AUTH_RATE_WINDOW)),
             client_ip_header: auth.client_ip_header.as_deref().map(Arc::from),
+            resolver: Arc::new(HostResolver::System),
         }
     }
 
@@ -43,10 +48,18 @@ impl AppState {
         self.auth_rate_limiter = Arc::new(limiter);
         self
     }
+
+    /// Swap the DNS resolver (tests pin host → IP mappings).
+    pub fn with_resolver(mut self, resolver: HostResolver) -> Self {
+        self.resolver = Arc::new(resolver);
+        self
+    }
 }
 
 pub fn router(state: AppState) -> Router {
-    let api_v1 = Router::new().nest("/auth", auth::routes());
+    let api_v1 = Router::new()
+        .nest("/auth", auth::routes())
+        .nest("/endpoints", endpoints::routes());
 
     Router::new()
         .route("/health", get(health))

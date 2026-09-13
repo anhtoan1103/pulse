@@ -7,6 +7,12 @@ use axum::{
 };
 use std::net::{IpAddr, SocketAddr};
 
+/// `axum::extract::Path`, but rejections (e.g. a malformed UUID) render in
+/// the standard API error format.
+#[derive(FromRequestParts)]
+#[from_request(via(axum::extract::Path), rejection(ApiError))]
+pub struct ApiPath<T>(pub T);
+
 /// `axum::Json`, but rejections render in the standard API error format.
 #[derive(FromRequest)]
 #[from_request(via(axum::Json), rejection(ApiError))]

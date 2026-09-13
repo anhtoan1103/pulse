@@ -11,13 +11,18 @@ AI design).
 
 ## Status
 
-Implement-order step 3 of
-[`docs/pulse-project-context.md`](docs/pulse-project-context.md) §6 done
-(email/password part): `POST /api/v1/auth/register`, `POST /auth/login`
-(JWT), `GET /auth/me`, `POST /auth/logout`, Argon2id hashing, per-IP rate
-limiting on login/register, 10-user cap, first-admin seed from
-`ADMIN_SEED_*`. OAuth (Google/GitHub) is deferred until the Cloudflare Tunnel
-domain exists for callback URLs. Next step is endpoints CRUD (step 4).
+Implement-order steps 1–4 of
+[`docs/pulse-project-context.md`](docs/pulse-project-context.md) §6 done:
+
+- **Auth** (email/password): register, login (JWT), `me`, logout; Argon2id,
+  per-IP rate limiting, 10-user cap, first-admin seed from `ADMIN_SEED_*`.
+  OAuth is deferred until the Cloudflare Tunnel domain exists.
+- **Endpoints CRUD** (`/api/v1/endpoints`): ownership-scoped (other users'
+  endpoints are a 404), range validation, 50 endpoints/user, and SSRF
+  validation of target URLs (private/loopback/link-local/reserved addresses
+  rejected after DNS resolution).
+
+Next step is the Checker Worker + Scheduler (step 5).
 
 ## Tech stack
 

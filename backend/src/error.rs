@@ -10,7 +10,7 @@
 
 use axum::{
     Json,
-    extract::rejection::JsonRejection,
+    extract::rejection::{JsonRejection, PathRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -103,5 +103,11 @@ impl From<JsonRejection> for ApiError {
             JsonRejection::JsonDataError(e) => Self::validation(e.body_text()),
             other => Self::bad_request(other.body_text()),
         }
+    }
+}
+
+impl From<PathRejection> for ApiError {
+    fn from(_: PathRejection) -> Self {
+        Self::bad_request("invalid path parameter")
     }
 }
