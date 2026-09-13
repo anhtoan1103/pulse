@@ -11,12 +11,13 @@ AI design).
 
 ## Status
 
-Implement-order step 2 of
-[`docs/pulse-project-context.md`](docs/pulse-project-context.md) §6 done:
-SQLx migrations for the full schema in
-[`docs/pulse-database-schema.md`](docs/pulse-database-schema.md)
-(`backend/migrations/`), applied automatically by the API server on startup.
-Still no user-facing features — next step is auth (step 3).
+Implement-order step 3 of
+[`docs/pulse-project-context.md`](docs/pulse-project-context.md) §6 done
+(email/password part): `POST /api/v1/auth/register`, `POST /auth/login`
+(JWT), `GET /auth/me`, `POST /auth/logout`, Argon2id hashing, per-IP rate
+limiting on login/register, 10-user cap, first-admin seed from
+`ADMIN_SEED_*`. OAuth (Google/GitHub) is deferred until the Cloudflare Tunnel
+domain exists for callback URLs. Next step is endpoints CRUD (step 4).
 
 ## Tech stack
 
@@ -43,6 +44,9 @@ pulse/
 ## Local dev
 
 1. `cp .env.example .env` and fill in values (never commit the real `.env`).
+   The API refuses to start without a `JWT_SECRET` of at least 32 characters
+   (`openssl rand -hex 32`). If `ADMIN_SEED_EMAIL`/`ADMIN_SEED_PASSWORD` are
+   set, the first admin is created on startup when no admin exists yet.
 2. `docker compose up --build` — starts Postgres, Redis, `backend-api`
    (`:8080`), `backend-worker`, and `frontend` (`:3000`).
 
