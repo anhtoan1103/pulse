@@ -104,3 +104,50 @@ impl AuthConfig {
 fn non_empty_var(key: &str) -> Option<String> {
     env::var(key).ok().filter(|v| !v.trim().is_empty())
 }
+
+/// LLM provider settings for the AI Analysis Service (worker only).
+/// Providers are reached through their OpenAI-compatible APIs, so switching
+/// provider is just config (project-context #2).
+///
+/// No `Debug` derive: holds the API key.
+#[derive(Clone)]
+pub struct AiConfig {
+    /// Base URL up to (not including) `/chat/completions`.
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+}
+
+impl AiConfig {
+    /// `Ok(None)` when `AI_API_KEY` is unset — AI analysis is then disabled
+    /// and incidents stay `pending` until a key is configured.
+    ///
+    /// - `AI_PROVIDER`: `gemini` | `groq` (picks the default base URL)
+    /// - `AI_BASE_URL`: optional override (any OpenAI-compatible endpoint)
+    /// - `AI_MODEL`: required when a key is set — model ids change often, so
+    ///   there's deliberately no built-in default
+    pub fn from_env() -> anyhow::Result<Option<Self>> {
+        let Some(api_key) = non_empty_var("AI_API_KEY") else {
+            return Ok(None);
+        };
+        let provider = non_empty_var("AI_PROVIDER").unwrap_or_else(|| "gemini".into());
+        let base_url = match non_empty_var("AI_BASE_URL") {
+            Some(url) => url,
+            None => match provider.trim().to_ascii_lowercase().as_str() {
+                "gemini" => "https://generativelanguage.googleapis.com/v1beta/openai".into(),
+                "groq" => "https://api.groq.com/openai/v1".into(),
+                other => anyhow::bail!(
+                    "unknown AI_PROVIDER {other:?} (expected gemini or groq, or set AI_BASE_URL)"
+                ),
+            },
+        };
+        let model = non_empty_var("AI_MODEL")
+            .ok_or_else(|| anyhow::anyhow!("AI_MODEL must be set when AI_API_KEY is set"))?;
+
+        Ok(Some(Self {
+            base_url: base_url.trim().trim_end_matches('/').to_string(),
+            api_key: api_key.trim().to_string(),
+            model: model.trim().to_string(),
+        }))
+    }
+}

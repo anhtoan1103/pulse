@@ -1,4 +1,10 @@
-//! AI Analysis Service (docs/pulse-ai-design.md). Step 6 provides the input
-//! side — [`context::prepare_ai_context`]; the LLM call lands in step 7.
+//! AI Analysis Service (docs/pulse-ai-design.md):
+//! [`context`] prepares sanitized input, [`prompt`] frames it, [`llm`] calls
+//! the provider, [`output`] validates the structured reply, and [`service`]
+//! drives pending incidents through it.
 
 pub mod context;
+pub mod llm;
+pub mod output;
+pub mod prompt;
+pub mod service;

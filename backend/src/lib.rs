@@ -16,6 +16,7 @@ pub mod extract;
 pub mod queue;
 pub mod rate_limit;
 pub mod ssrf;
+pub mod tls;
 pub mod worker;
 
 /// Initializes `tracing` with an env-filter (`RUST_LOG`, default `info`).

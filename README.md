@@ -11,7 +11,7 @@ AI design).
 
 ## Status
 
-Implement-order steps 1–6 of
+Implement-order steps 1–7 of
 [`docs/pulse-project-context.md`](docs/pulse-project-context.md) §6 done:
 
 - **Auth** (email/password): register, login (JWT), `me`, logout; Argon2id,
@@ -39,7 +39,16 @@ Implement-order steps 1–6 of
   status codes/errors and redacts secrets, neutralizes prompt injection and
   truncates text before anything reaches an LLM.
 
-Next step is the AI Analysis Service (step 7).
+- **AI Analysis Service** (in the `worker`): analyzes `pending` incidents
+  one at a time through the provider's OpenAI-compatible API with JSON-schema
+  structured output, validated before storing (`ai_possible_cause`,
+  `ai_confidence`, `ai_evidence`, `ai_suggested_steps`). Invalid output gets
+  one retry with a format reminder; rate limits / 5xx / timeouts back off
+  and retry (up to 5 attempts); bad key or model fails immediately. Leased
+  claims make it safe with several workers. Disabled when `AI_API_KEY` is
+  empty.
+
+Next step is the Notification Service — email (step 8).
 
 ## Tech stack
 

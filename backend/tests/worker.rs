@@ -477,6 +477,7 @@ async fn worker_run_checks_due_endpoints_end_to_end(pool: PgPool) {
         pool.clone(),
         queue,
         test_checker(),
+        None,
         shutdown.clone(),
     ));
 

@@ -24,7 +24,7 @@ use std::{
     error::Error as StdError,
     fmt,
     net::{IpAddr, SocketAddr},
-    sync::{Arc, Once},
+    sync::Arc,
     time::{Duration, Instant},
 };
 use url::{Host, Url};
@@ -94,7 +94,7 @@ pub struct HttpChecker {
 
 impl HttpChecker {
     pub fn new(settings: CheckerSettings) -> anyhow::Result<Self> {
-        install_crypto_provider();
+        crate::tls::install_crypto_provider();
         let CheckerSettings {
             timeout,
             connect_timeout,
@@ -252,16 +252,6 @@ fn root_cause(err: &(dyn StdError + 'static)) -> String {
         current = source;
     }
     current.to_string()
-}
-
-/// reqwest is built with `rustls-no-provider` (the default aws-lc backend
-/// needs cmake/NASM to build on Windows), so pick ring once per process.
-fn install_crypto_provider() {
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        // Err only if a provider is already installed — fine either way.
-        let _ = rustls::crypto::ring::default_provider().install_default();
-    });
 }
 
 #[cfg(test)]

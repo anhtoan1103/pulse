@@ -6,7 +6,8 @@
 //! scheduler just logs errors and retries on its next tick.
 
 use pulse_backend::{
-    config::Config,
+    analysis::llm::{self, LlmClient},
+    config::{AiConfig, Config},
     db,
     queue::{CheckQueue, DEFAULT_QUEUE_KEY},
     worker::{
@@ -15,7 +16,7 @@ use pulse_backend::{
     },
 };
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -25,6 +26,13 @@ async fn main() -> anyhow::Result<()> {
     let pool = db::connect(&config.database_url).await?;
     let queue = CheckQueue::connect(&config.redis_url, DEFAULT_QUEUE_KEY).await?;
     let checker = HttpChecker::new(CheckerSettings::default())?;
+    let analyzer = match AiConfig::from_env()? {
+        Some(ai) => Some(LlmClient::new(&ai, llm::DEFAULT_TIMEOUT)?),
+        None => {
+            warn!("AI_API_KEY not set: AI analysis disabled, incidents stay pending");
+            None
+        }
+    };
 
     let shutdown = CancellationToken::new();
     tokio::spawn({
@@ -37,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     info!(env = %config.app_env, "pulse-worker started");
-    worker::run(pool, queue, checker, shutdown).await;
+    worker::run(pool, queue, checker, analyzer, shutdown).await;
     Ok(())
 }
 

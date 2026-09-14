@@ -7,7 +7,10 @@ pub mod checker;
 pub mod job;
 pub mod scheduler;
 
-use crate::queue::CheckQueue;
+use crate::{
+    analysis::{llm::LlmClient, service as analysis},
+    queue::CheckQueue,
+};
 use checker::HttpChecker;
 use job::JobResult;
 use sqlx::PgPool;
@@ -27,13 +30,17 @@ pub const MAX_CONCURRENT_CHECKS: usize = 100;
 const ERROR_BACKOFF: Duration = Duration::from_secs(2);
 
 /// Runs until `shutdown` is cancelled, then stops scheduling/consuming and
-/// waits for in-flight checks to finish.
+/// waits for in-flight checks to finish. `analyzer` is `None` when no AI
+/// provider is configured: incidents are still opened, but stay `pending`.
 pub async fn run(
     pool: PgPool,
     queue: CheckQueue,
     checker: HttpChecker,
+    analyzer: Option<LlmClient>,
     shutdown: CancellationToken,
 ) {
+    let analysis =
+        analyzer.map(|llm| tokio::spawn(analysis::run_loop(pool.clone(), llm, shutdown.clone())));
     let scheduler = tokio::spawn(scheduler_loop(
         pool.clone(),
         queue.clone(),
@@ -41,6 +48,9 @@ pub async fn run(
     ));
     consumer_loop(pool, queue, Arc::new(checker), shutdown).await;
     let _ = scheduler.await;
+    if let Some(analysis) = analysis {
+        let _ = analysis.await;
+    }
     info!("worker stopped");
 }
 
