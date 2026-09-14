@@ -60,6 +60,7 @@ async fn all_tables_exist(pool: PgPool) {
         [
             "auth_identities",
             "checks",
+            "digest_runs",
             "endpoints",
             "health_digests",
             "incidents",

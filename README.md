@@ -11,7 +11,7 @@ AI design).
 
 ## Status
 
-Implement-order steps 1–8 of
+Implement-order steps 1–9 of
 [`docs/pulse-project-context.md`](docs/pulse-project-context.md) §6 done:
 
 - **Auth** (email/password): register, login (JWT), `me`, logout; Argon2id,
@@ -55,7 +55,15 @@ Implement-order steps 1–8 of
   permanent ones fail, disabled users are skipped. Disabled when `SMTP_HOST`
   is empty.
 
-Next step is the periodic Health Digest (step 9).
+- **Health Digest** (in the `worker`): once a day at 08:00 UTC, aggregates
+  each endpoint's checks over the preceding 24h into a `health_digests` row
+  (`healthy`/`degraded` against its own thresholds), then bundles a user's
+  endpoints into a single daily email via the same notification outbox as
+  incidents. No AI. A `digest_runs` claim table (`period_end` unique) makes
+  a period generate exactly once even with several worker replicas; missed
+  periods (e.g. the worker was down) aren't backfilled.
+
+Next step is the frontend dashboard, connected to the API (step 10).
 
 ## Tech stack
 

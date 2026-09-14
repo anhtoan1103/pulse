@@ -13,6 +13,7 @@
 //!   deleted recipients cancel the notification.
 
 use super::{
+    digest_email,
     email::{Mailer, SendError},
     incident_email,
 };
@@ -102,6 +103,8 @@ pub async fn claim_next(
     .await
 }
 
+type NotificationRow = (String, Option<Uuid>, Option<Uuid>, Uuid, String, bool);
+
 /// Renders and sends one claimed notification, persisting the outcome.
 pub async fn deliver(
     pool: &PgPool,
@@ -111,34 +114,39 @@ pub async fn deliver(
     notification_id: Uuid,
     attempt: i32,
 ) -> anyhow::Result<DeliveryOutcome> {
-    let row: Option<(String, Option<Uuid>, String, bool)> = sqlx::query_as(
-        "SELECT n.kind, n.incident_id, u.email, u.is_active
+    let row: Option<NotificationRow> = sqlx::query_as(
+        "SELECT n.kind, n.incident_id, n.digest_run_id, n.user_id, u.email, u.is_active
          FROM notifications n JOIN users u ON u.id = n.user_id
          WHERE n.id = $1",
     )
     .bind(notification_id)
     .fetch_optional(pool)
     .await?;
-    let Some((kind, incident_id, recipient, recipient_active)) = row else {
+    let Some((kind, incident_id, digest_run_id, user_id, recipient, recipient_active)) = row else {
         return Ok(DeliveryOutcome::Gone);
     };
     if !recipient_active {
         return cancel(pool, notification_id, "recipient account is disabled").await;
     }
 
-    let (subject, body) = match (kind.as_str(), incident_id) {
-        ("incident_opened", Some(incident_id)) => {
+    let (subject, body) = match (kind.as_str(), incident_id, digest_run_id) {
+        ("incident_opened", Some(incident_id), _) => {
             match incident_email::load(pool, incident_id).await? {
                 Some(email) => incident_email::render(&email, frontend_url, ai_enabled),
                 None => return cancel(pool, notification_id, "incident no longer exists").await,
             }
         }
-        // Health digest emails arrive with implement-order step 9.
-        (other, _) => {
+        ("health_digest", _, Some(digest_run_id)) => {
+            match digest_email::load(pool, user_id, digest_run_id).await? {
+                Some(email) => digest_email::render(&email, frontend_url),
+                None => return cancel(pool, notification_id, "no digests for this run").await,
+            }
+        }
+        (other, _, _) => {
             return cancel(
                 pool,
                 notification_id,
-                &format!("unsupported notification kind {other}"),
+                &format!("unsupported/malformed notification kind {other}"),
             )
             .await;
         }

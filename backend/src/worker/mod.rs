@@ -9,6 +9,7 @@ pub mod scheduler;
 
 use crate::{
     analysis::{llm::LlmClient, service as analysis},
+    health_digest,
     notify::service::{self as notify, Notifier},
     queue::CheckQueue,
 };
@@ -53,6 +54,10 @@ pub async fn run(
     });
     let analysis =
         analyzer.map(|llm| tokio::spawn(analysis::run_loop(pool.clone(), llm, shutdown.clone())));
+    // Runs regardless of AI/email config: it always fills in health_digests;
+    // whether the resulting notification ever gets emailed depends on
+    // `notifications` (unaffected by AI, gated by `notifier` above).
+    let digest = tokio::spawn(health_digest::run_loop(pool.clone(), shutdown.clone()));
     let scheduler = tokio::spawn(scheduler_loop(
         pool.clone(),
         queue.clone(),
@@ -60,7 +65,10 @@ pub async fn run(
     ));
     consumer_loop(pool, queue, Arc::new(checker), shutdown).await;
     let _ = scheduler.await;
-    for task in [analysis, notifications].into_iter().flatten() {
+    for task in [analysis, notifications, Some(digest)]
+        .into_iter()
+        .flatten()
+    {
         let _ = task.await;
     }
     info!("worker stopped");
