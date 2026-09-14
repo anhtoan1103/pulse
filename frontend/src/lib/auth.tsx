@@ -42,6 +42,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
+  // Any request elsewhere in the app (a background poll, a mutation) that
+  // gets a 401 calls this — a token expiring or an admin disabling the
+  // account mid-session must flip `status` here, not just clear storage,
+  // or RequireAuth never learns to redirect and the user is stuck staring
+  // at a stale "authenticated" shell repeating the same failed request.
+  useEffect(() => {
+    return api.onUnauthorized(() => {
+      setUser(null);
+      setStatus("unauthenticated");
+    });
+  }, []);
+
   const login = useCallback(async (email: string, password: string) => {
     const { token, user } = await api.login(email, password);
     api.setToken(token);

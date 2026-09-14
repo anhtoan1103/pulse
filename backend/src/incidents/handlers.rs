@@ -3,6 +3,7 @@ use crate::{
     auth::AuthUser,
     error::ApiError,
     extract::{ApiPath, ApiQuery},
+    pagination::clamp_limit,
 };
 use axum::Json;
 use axum::extract::State;
@@ -69,7 +70,7 @@ pub async fn list(
     State(state): State<AppState>,
     ApiQuery(q): ApiQuery<ListQuery>,
 ) -> Result<Json<IncidentList>, ApiError> {
-    let limit = q.limit.unwrap_or(100).clamp(1, 1000);
+    let limit = clamp_limit(q.limit)?;
     let resolved_filter: Option<bool> = match q.status.as_deref() {
         Some("open") => Some(false),
         Some("resolved") => Some(true),

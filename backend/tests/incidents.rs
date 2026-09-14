@@ -208,6 +208,38 @@ async fn list_filters_by_status_and_endpoint_id(pool: PgPool) {
     assert_eq!(body["incidents"].as_array().unwrap().len(), 0);
 }
 
+/// Same validated `limit` behavior as the metrics endpoints (both now go
+/// through the shared `pagination::clamp_limit`) — out-of-range is a 422,
+/// not a silent clamp.
+#[sqlx::test(migrator = "MIGRATOR")]
+async fn list_rejects_out_of_range_limit(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let token = app.register_and_login("a@example.com").await;
+
+    for bad in ["limit=0", "limit=1001", "limit=abc"] {
+        let (status, body) = app
+            .request(
+                Method::GET,
+                &format!("/api/v1/incidents?{bad}"),
+                None,
+                Some(&token),
+            )
+            .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{bad} -> {body}");
+        assert_error(&body, "VALIDATION_ERROR");
+    }
+
+    let (status, _) = app
+        .request(
+            Method::GET,
+            "/api/v1/incidents?limit=1000",
+            None,
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
 #[sqlx::test(migrator = "MIGRATOR")]
 async fn list_requires_authentication(pool: PgPool) {
     let app = TestApp::new(pool);

@@ -13,6 +13,24 @@ const LIMITS = {
   errorRate: { min: 0, max: 100 },
 };
 
+/** Only the fields of `values` that differ from `initial`'s own value. */
+function diffFromInitial(values: EndpointInput, initial: Endpoint): Partial<EndpointInput> {
+  const changed: Partial<EndpointInput> = {};
+  if (values.name !== initial.name) changed.name = values.name;
+  if (values.url !== initial.url) changed.url = values.url;
+  if (values.method !== initial.method) changed.method = values.method;
+  if (values.check_interval_seconds !== initial.check_interval_seconds) {
+    changed.check_interval_seconds = values.check_interval_seconds;
+  }
+  if (values.latency_threshold_ms !== initial.latency_threshold_ms) {
+    changed.latency_threshold_ms = values.latency_threshold_ms;
+  }
+  if (values.error_rate_threshold_percent !== initial.error_rate_threshold_percent) {
+    changed.error_rate_threshold_percent = values.error_rate_threshold_percent;
+  }
+  return changed;
+}
+
 export function EndpointForm({
   initial,
   submitLabel,
@@ -20,7 +38,12 @@ export function EndpointForm({
 }: {
   initial?: Endpoint;
   submitLabel: string;
-  onSubmit: (input: EndpointInput) => Promise<void>;
+  /**
+   * Without `initial` (create), always called with every field. With
+   * `initial` (edit), called with only the fields that actually changed —
+   * possibly `{}` if the user hit save without changing anything.
+   */
+  onSubmit: (input: Partial<EndpointInput>) => Promise<void>;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [url, setUrl] = useState(initial?.url ?? "");
@@ -36,14 +59,21 @@ export function EndpointForm({
     setError(null);
     setSubmitting(true);
     try {
-      await onSubmit({
+      const values: EndpointInput = {
         name,
         url,
         method,
         check_interval_seconds: interval,
         latency_threshold_ms: latency,
         error_rate_threshold_percent: errorRate,
-      });
+      };
+      // Editing: send only what actually changed. The backend treats an
+      // omitted url as "leave it alone" and skips its SSRF/DNS re-check —
+      // always resending it would re-run that check on every save (even a
+      // pure rename), so a transient DNS hiccup on the target could reject
+      // an edit that never touched the URL at all.
+      const input = initial ? diffFromInitial(values, initial) : values;
+      await onSubmit(input);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
       setSubmitting(false);

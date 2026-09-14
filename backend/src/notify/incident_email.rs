@@ -3,6 +3,7 @@
 //! docs/pulse-ai-design.md #5).
 
 use crate::anomaly::WindowStats;
+use crate::notify::one_line;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use url::Url;
@@ -139,14 +140,6 @@ fn display_url(raw: &str) -> String {
         }
         Err(_) => one_line(raw),
     }
-}
-
-/// Collapses control chars/newlines so data can't reshape the email.
-fn one_line(text: &str) -> String {
-    text.split(|c: char| c.is_control() || c.is_whitespace())
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn capitalize(text: &str) -> String {

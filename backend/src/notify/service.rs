@@ -51,7 +51,10 @@ pub enum DeliveryOutcome {
 }
 
 /// Queues the "incident opened" email for the endpoint owner. Call inside
-/// the transaction that opens the incident. Idempotent per incident.
+/// the transaction that opens *or re-triggers* (relapses) the incident.
+/// Idempotent while a notification for this incident is still pending —
+/// once that one is sent/failed/cancelled, calling this again (e.g. for a
+/// later relapse of the same incident) queues a fresh one.
 pub async fn enqueue_incident_opened(
     conn: &mut PgConnection,
     incident_id: Uuid,
@@ -61,7 +64,7 @@ pub async fn enqueue_incident_opened(
          SELECT e.user_id, 'incident_opened', i.id, i.triggered_at + make_interval(secs => $2)
          FROM incidents i JOIN endpoints e ON e.id = i.endpoint_id
          WHERE i.id = $1
-         ON CONFLICT (incident_id) WHERE incident_id IS NOT NULL DO NOTHING",
+         ON CONFLICT (incident_id) WHERE incident_id IS NOT NULL AND status = 'pending' DO NOTHING",
     )
     .bind(incident_id)
     .bind(AI_WAIT.num_seconds() as f64)

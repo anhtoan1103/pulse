@@ -8,11 +8,18 @@ use std::time::Duration;
 /// image doesn't need the `migrations/` directory to apply them.
 pub static MIGRATOR: Migrator = sqlx::migrate!();
 
-/// Opens a connection pool. Small pool on purpose: MVP load is ≤10 users /
-/// ≤50 endpoints each, and api + worker each hold their own pool.
-pub async fn connect(database_url: &str) -> Result<PgPool, sqlx::Error> {
+/// Opens a connection pool sized to `max_connections`. api and worker each
+/// hold their own pool (separate `connect()` calls), so size each to that
+/// process's own concurrency, not the MVP's user-facing scale — the API
+/// server's human-triggered load is small, but the worker's is driven by
+/// `worker::MAX_CONCURRENT_CHECKS`; a pool much smaller than that would
+/// serialize checks behind pool-acquire waits (and risk hitting
+/// `acquire_timeout`) despite the semaphore/`JoinSet` design intending them
+/// to run in parallel. Callers should derive their value from what they
+/// actually need rather than guessing, as `bin/worker.rs` does.
+pub async fn connect(database_url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
     PgPoolOptions::new()
-        .max_connections(10)
+        .max_connections(max_connections)
         .acquire_timeout(Duration::from_secs(5))
         .connect(database_url)
         .await

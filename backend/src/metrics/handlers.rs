@@ -1,9 +1,9 @@
-use super::{DEFAULT_LIMIT, MAX_LIMIT};
 use crate::{
     app::AppState,
     auth::AuthUser,
     error::ApiError,
     extract::{ApiPath, ApiQuery},
+    pagination::clamp_limit,
 };
 use axum::{Json, extract::State};
 use chrono::{DateTime, Utc};
@@ -47,16 +47,6 @@ async fn require_owned_endpoint(pool: &PgPool, id: Uuid, user_id: Uuid) -> Resul
     } else {
         Err(ApiError::not_found())
     }
-}
-
-fn clamp_limit(limit: Option<i64>) -> Result<i64, ApiError> {
-    let limit = limit.unwrap_or(DEFAULT_LIMIT);
-    if limit <= 0 || limit > MAX_LIMIT {
-        return Err(ApiError::validation(format!(
-            "limit must be between 1 and {MAX_LIMIT}"
-        )));
-    }
-    Ok(limit)
 }
 
 /// `GET /api/v1/endpoints/{id}/checks` → 200 `{ checks: [...] }`

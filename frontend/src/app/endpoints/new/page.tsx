@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { RequireAuth } from "@/lib/auth";
-import { createEndpoint } from "@/lib/api";
+import { createEndpoint, type EndpointInput } from "@/lib/api";
 import { EndpointForm } from "@/components/EndpointForm";
 import { Card } from "@/components/ui";
 
@@ -17,7 +17,9 @@ export default function NewEndpointPage() {
           <EndpointForm
             submitLabel="Create endpoint"
             onSubmit={async (input) => {
-              const created = await createEndpoint(input);
+              // No `initial` passed to this form, so it always submits every
+              // field (see EndpointForm's onSubmit doc comment).
+              const created = await createEndpoint(input as EndpointInput);
               router.push(`/endpoints/${created.id}`);
             }}
           />

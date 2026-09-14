@@ -24,7 +24,16 @@ async fn main() -> anyhow::Result<()> {
     pulse_backend::init_tracing();
     let config = Config::from_env();
 
-    let pool = db::connect(&config.database_url).await?;
+    // Sized off MAX_CONCURRENT_CHECKS itself (not guessed separately) so the
+    // two can't silently drift apart again — the checker, scheduler, and the
+    // notify/analysis/digest loops all share this one pool. docker-compose.yml
+    // raises Postgres's own max_connections to cover this plus the API
+    // server's much smaller pool (the 100 default wouldn't).
+    let pool = db::connect(
+        &config.database_url,
+        worker::MAX_CONCURRENT_CHECKS as u32 + 20,
+    )
+    .await?;
     let queue = CheckQueue::connect(&config.redis_url, DEFAULT_QUEUE_KEY).await?;
     let checker = HttpChecker::new(CheckerSettings::default())?;
     let analyzer = match AiConfig::from_env()? {

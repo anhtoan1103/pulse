@@ -26,6 +26,21 @@ export function getToken(): string | null {
   }
 }
 
+// Lets AuthProvider learn that some request, anywhere in the app, just found
+// the session invalid — a plain localStorage write here has no way to reach
+// React state on its own, and without this a stale `status: "authenticated"`
+// would leave the user stuck on an error banner instead of being sent to
+// /login (see request()'s 401 handling below).
+type UnauthorizedListener = () => void;
+let unauthorizedListeners: UnauthorizedListener[] = [];
+
+export function onUnauthorized(listener: UnauthorizedListener): () => void {
+  unauthorizedListeners.push(listener);
+  return () => {
+    unauthorizedListeners = unauthorizedListeners.filter((l) => l !== listener);
+  };
+}
+
 export function setToken(token: string | null) {
   if (typeof window === "undefined") return;
   try {
@@ -77,7 +92,11 @@ async function request<T>(
   if (!res.ok) {
     const code = json?.error?.code ?? "UNKNOWN_ERROR";
     const message = json?.error?.message ?? `Request failed with status ${res.status}`;
-    if (res.status === 401 && auth) setToken(null); // stale/expired token
+    if (res.status === 401 && auth) {
+      // stale/expired token, or an admin disabled the account mid-session
+      setToken(null);
+      unauthorizedListeners.forEach((listener) => listener());
+    }
     throw new ApiError(res.status, code, message);
   }
   return json as T;

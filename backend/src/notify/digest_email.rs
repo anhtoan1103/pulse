@@ -1,6 +1,7 @@
 //! Daily health digest email: one message per user bundling every endpoint's
 //! digest for the period (docs/pulse-architecture.md #2.6). No AI involved.
 
+use crate::notify::one_line;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -74,14 +75,6 @@ pub fn render(email: &DigestEmail, frontend_url: &str) -> (String, String) {
         "\nView dashboard: {frontend_url}/dashboard\n\n--\nYou receive this email because you monitor these endpoints with Pulse.\n"
     ));
     (subject, body)
-}
-
-/// Collapses control chars/newlines so an endpoint name can't reshape the email.
-fn one_line(text: &str) -> String {
-    text.split(|c: char| c.is_control() || c.is_whitespace())
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// `None` if the user has no digests for this run (shouldn't happen if a

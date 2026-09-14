@@ -268,7 +268,11 @@ async fn recovery_suggests_resolving_and_relapse_withdraws_it(pool: PgPool) {
     );
     assert_eq!(recovery_state(&pool, incident).await.0, recovered);
 
-    // Relapse while still open: suggestion withdrawn, same incident continues.
+    // Relapse while still open, still within REOPEN_COOLDOWN of triggered_at
+    // (this whole test runs in well under a second of wall-clock time):
+    // suggestion withdrawn, same incident continues, but no fresh
+    // notify/AI-reset yet — see `relapse_outside_cooldown_refreshes_and_notifies`
+    // for that path.
     for s in [30, 25, 20, 15, 10, 5] {
         failing(&pool, ep, secs(s)).await;
     }
@@ -277,6 +281,182 @@ async fn recovery_suggests_resolving_and_relapse_withdraws_it(pool: PgPool) {
     assert!(eval.opened.is_empty());
     assert_eq!(recovery_state(&pool, incident).await, (None, None));
     assert_eq!(incidents(&pool, ep).await.len(), 1);
+}
+
+/// A relapse outside the cooldown window is treated like a fresh trigger on
+/// the *same* incident row: refreshed metric snapshots, AI analysis reset to
+/// pending (the old writeup described a different occurrence), and a new
+/// notification once the previous one has been delivered.
+#[sqlx::test(migrator = "MIGRATOR")]
+async fn relapse_outside_cooldown_refreshes_and_notifies(pool: PgPool) {
+    let ep = setup_endpoint(&pool).await;
+    // Far enough back (mins, not secs) that these age out of the 5-minute
+    // after-window by the time recovery is evaluated below — otherwise
+    // they'd still be in-window and outnumber the healthy checks.
+    for m in [8, 7, 6] {
+        failing(&pool, ep, mins(m)).await;
+    }
+    let incident = evaluate_endpoint(&pool, ep).await.unwrap().opened[0];
+
+    // Simulate a completed analysis of the *original* occurrence, and that
+    // its notification was already delivered.
+    sqlx::query(
+        "UPDATE incidents SET ai_status = 'completed', ai_possible_cause = 'stale cause',
+             ai_confidence = 'high', ai_evidence = '[\"stale evidence\"]',
+             ai_suggested_steps = '[\"stale step\"]', ai_attempts = 3
+         WHERE id = $1",
+    )
+    .bind(incident)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE notifications SET status = 'sent' WHERE incident_id = $1")
+        .bind(incident)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Recover, then push triggered_at back outside the cooldown so the next
+    // breach is treated as a fresh trigger rather than a flap.
+    for s in [30, 20, 10] {
+        healthy(&pool, ep, secs(s)).await;
+    }
+    assert_eq!(
+        evaluate_endpoint(&pool, ep).await.unwrap().recovered,
+        [incident]
+    );
+    sqlx::query("UPDATE incidents SET triggered_at = $2 WHERE id = $1")
+        .bind(incident)
+        .bind(Utc::now() - REOPEN_COOLDOWN - secs(1))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let before_relapse = Utc::now();
+    for s in [30, 20, 10] {
+        failing(&pool, ep, secs(s)).await;
+    }
+    let eval = evaluate_endpoint(&pool, ep).await.unwrap();
+    assert_eq!(eval.relapsed, [incident]);
+    assert!(
+        eval.opened.is_empty(),
+        "no new incident id — same row continues"
+    );
+    assert_eq!(incidents(&pool, ep).await.len(), 1);
+
+    let row = incidents(&pool, ep).await.into_iter().next().unwrap();
+    let (_, _, ai_status, resolved_at, before, after) = row;
+    assert_eq!(
+        ai_status, "pending",
+        "stale analysis reset, ready to re-analyze"
+    );
+    assert!(resolved_at.is_none());
+    assert!(before.is_some() && after.is_some(), "fresh snapshots taken");
+
+    type AiFieldsRow = (
+        Option<String>,
+        Option<String>,
+        Option<serde_json::Value>,
+        Option<serde_json::Value>,
+        i32,
+        chrono::DateTime<Utc>,
+    );
+    let (ai_cause, ai_confidence, ai_evidence, ai_suggested_steps, ai_attempts, triggered_at): AiFieldsRow =
+        sqlx::query_as(
+            "SELECT ai_possible_cause, ai_confidence, ai_evidence, ai_suggested_steps, ai_attempts, triggered_at
+             FROM incidents WHERE id = $1",
+        )
+    .bind(incident)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (
+            ai_cause,
+            ai_confidence,
+            ai_evidence,
+            ai_suggested_steps,
+            ai_attempts
+        ),
+        (None, None, None, None, 0),
+        "every stale AI field cleared, not just ai_status"
+    );
+    assert!(
+        triggered_at >= before_relapse,
+        "triggered_at moved to the relapse, not the original trigger"
+    );
+
+    let pending: (String, Option<Uuid>, chrono::DateTime<Utc>) = sqlx::query_as(
+        "SELECT status, incident_id, created_at FROM notifications
+         WHERE incident_id = $1 AND status = 'pending'",
+    )
+    .bind(incident)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(pending.0, "pending");
+    let total_notifications: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM notifications WHERE incident_id = $1")
+            .bind(incident)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        total_notifications, 2,
+        "the original (now sent) plus a fresh one for the relapse"
+    );
+}
+
+/// A relapse whose only prior notification is still pending doesn't get a
+/// second one queued behind it (the partial unique index only allows one
+/// pending notification per incident at a time) — but the eventual delivery
+/// still reads the refreshed incident row, so the user isn't left with wrong
+/// information, just a notification that arrived a bit earlier than the new
+/// analysis technically finished.
+#[sqlx::test(migrator = "MIGRATOR")]
+async fn relapse_with_notification_still_pending_does_not_duplicate(pool: PgPool) {
+    let ep = setup_endpoint(&pool).await;
+    // See relapse_outside_cooldown_refreshes_and_notifies: mins() so this
+    // ages out of the after-window before the recovery check below.
+    for m in [8, 7, 6] {
+        failing(&pool, ep, mins(m)).await;
+    }
+    let incident = evaluate_endpoint(&pool, ep).await.unwrap().opened[0];
+    for s in [30, 20, 10] {
+        healthy(&pool, ep, secs(s)).await;
+    }
+    assert_eq!(
+        evaluate_endpoint(&pool, ep).await.unwrap().recovered,
+        [incident],
+        "must actually recover before a relapse means anything"
+    );
+    sqlx::query("UPDATE incidents SET triggered_at = $2 WHERE id = $1")
+        .bind(incident)
+        .bind(Utc::now() - REOPEN_COOLDOWN - secs(1))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    for s in [30, 20, 10] {
+        failing(&pool, ep, secs(s)).await;
+    }
+    let eval = evaluate_endpoint(&pool, ep).await.unwrap();
+    assert_eq!(
+        eval.relapsed,
+        [incident],
+        "the relapse branch must actually run"
+    );
+
+    let total: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM notifications WHERE incident_id = $1")
+            .bind(incident)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        total, 1,
+        "still-pending original notification blocks a duplicate insert"
+    );
 }
 
 /// After the user resolves an incident, a new breach (once the cooldown has

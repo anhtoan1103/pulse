@@ -9,9 +9,6 @@ mod handlers;
 use crate::app::AppState;
 use axum::{Router, routing::get};
 
-pub const DEFAULT_LIMIT: i64 = 100;
-pub const MAX_LIMIT: i64 = 1000;
-
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/{id}/checks", get(handlers::list_checks))

@@ -19,6 +19,7 @@ pub mod health_digest;
 pub mod incidents;
 pub mod metrics;
 pub mod notify;
+pub mod pagination;
 pub mod queue;
 pub mod rate_limit;
 pub mod ssrf;

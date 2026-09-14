@@ -94,19 +94,18 @@ pub struct Stats {
 }
 
 /// `GET /api/v1/admin/stats` → 200 overview counts.
+///
+/// One round trip for all three counts — they don't depend on each other,
+/// so there's no reason to pay three sequential round trips for them.
 pub async fn stats(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Stats>, ApiError> {
-    let total_users: i64 = sqlx::query_scalar("SELECT count(*) FROM users")
-        .fetch_one(&state.pool)
-        .await?;
-    let active_endpoints: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM endpoints WHERE is_active")
-            .fetch_one(&state.pool)
-            .await?;
-    let incidents_last_24h: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM incidents WHERE triggered_at >= now() - interval '24 hours'",
+    let (total_users, active_endpoints, incidents_last_24h): (i64, i64, i64) = sqlx::query_as(
+        "SELECT
+             (SELECT count(*) FROM users),
+             (SELECT count(*) FROM endpoints WHERE is_active),
+             (SELECT count(*) FROM incidents WHERE triggered_at >= now() - interval '24 hours')",
     )
     .fetch_one(&state.pool)
     .await?;

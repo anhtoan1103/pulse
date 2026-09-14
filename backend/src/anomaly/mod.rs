@@ -15,13 +15,20 @@
 //! - **One open incident per endpoint + reason** (also a unique index).
 //! - **Never auto-resolves** — resolving is the user's decision. When the
 //!   window is back within threshold the open incident gets `recovered_at`
-//!   set, which the dashboard shows as a suggestion to resolve it. If the
-//!   endpoint breaches again while the incident is still open,
-//!   `recovered_at` is cleared (the same incident continues; no new one).
-//! - **Re-open cooldown** of [`REOPEN_COOLDOWN`] per endpoint + reason after
-//!   the previous incident was triggered, so resolving an incident while the
-//!   endpoint still flaps can't open (and pay for AI analysis of) a new one
-//!   on every check.
+//!   set, which the dashboard shows as a suggestion to resolve it.
+//! - **Relapse**: if the endpoint breaches again before the user resolves a
+//!   recovered incident, `recovered_at` is cleared unconditionally (it isn't
+//!   recovered, full stop). Outside the cooldown below, the *same* incident
+//!   row also gets fresh metric snapshots, its AI analysis reset to
+//!   `pending`, and a new notification — otherwise the dashboard and the
+//!   last email would keep describing the previous, unrelated occurrence.
+//!   No new incident id is created; the row's whole lifetime (open →
+//!   recovered ⇄ relapsed → resolved) stays one record.
+//! - **Re-open/re-trigger cooldown** of [`REOPEN_COOLDOWN`] per endpoint +
+//!   reason, measured from the incident's `triggered_at`: applies both to
+//!   opening a new incident after the previous one was resolved, and to a
+//!   relapse's fresh notification/AI-reset, so an endpoint flapping faster
+//!   than the cooldown can't spam either.
 
 use crate::notify;
 use chrono::{DateTime, Duration, Utc};
@@ -146,7 +153,8 @@ pub struct Evaluation {
     /// (`recovered_at` set → UI suggests resolving).
     pub recovered: Vec<Uuid>,
     /// Open, previously recovered incidents that breached again
-    /// (`recovered_at` cleared).
+    /// (`recovered_at` cleared; outside the cooldown, also re-triggered —
+    /// fresh snapshots, `ai_status` reset to `pending`, a new notification).
     pub relapsed: Vec<Uuid>,
 }
 
@@ -246,12 +254,52 @@ pub async fn evaluate_endpoint(pool: &PgPool, endpoint_id: Uuid) -> anyhow::Resu
                     .await?;
                 evaluation.recovered.push(incident_id);
             }
-            // Breaching again before the user resolved it: withdraw the suggestion.
+            // Breaching again before the user resolved it (a relapse):
+            // withdraw the "recovered" suggestion unconditionally — it isn't
+            // recovered anymore, full stop. Whether this also counts as a
+            // fresh trigger (refreshed metrics, a reset AI analysis, and a
+            // new notification) is gated by the same cooldown a brand-new
+            // incident would use, so a flapping endpoint can't spam either.
             (true, Some((incident_id, true))) => {
-                sqlx::query("UPDATE incidents SET recovered_at = NULL WHERE id = $1")
+                if in_cooldown(&mut tx, endpoint_id, reason, now).await? {
+                    sqlx::query("UPDATE incidents SET recovered_at = NULL WHERE id = $1")
+                        .bind(incident_id)
+                        .execute(&mut *tx)
+                        .await?;
+                } else {
+                    if before.is_none() {
+                        let after_start = after_samples.last().map(|s| s.checked_at).unwrap_or(now);
+                        let before_samples =
+                            window(&mut tx, endpoint_id, after_start, BEFORE_WINDOW).await?;
+                        before = Some(WindowStats::from_samples(
+                            period_label(&before_samples, BEFORE_WINDOW, "preceding"),
+                            &before_samples,
+                        ));
+                    }
+                    // Same incident row continues (no new id — see PRD/step-6
+                    // history on why relapses don't fragment into new
+                    // incidents), but everything about it is refreshed as if
+                    // it had just triggered: new snapshots, a fresh AI
+                    // analysis, and a new email, since the AI's stale
+                    // writeup and the last email both described the
+                    // *previous* occurrence, not this one.
+                    sqlx::query(
+                        "UPDATE incidents SET
+                             recovered_at = NULL, triggered_at = $2,
+                             metric_before = $3, metric_after = $4,
+                             ai_status = 'pending', ai_possible_cause = NULL, ai_confidence = NULL,
+                             ai_evidence = NULL, ai_suggested_steps = NULL, ai_error = NULL,
+                             ai_attempts = 0, ai_next_attempt_at = NULL
+                         WHERE id = $1",
+                    )
                     .bind(incident_id)
+                    .bind(now)
+                    .bind(sqlx::types::Json(&before))
+                    .bind(sqlx::types::Json(&after))
                     .execute(&mut *tx)
                     .await?;
+                    notify::service::enqueue_incident_opened(&mut tx, incident_id).await?;
+                }
                 evaluation.relapsed.push(incident_id);
             }
             // Still breaching and not recovered, still healthy and already

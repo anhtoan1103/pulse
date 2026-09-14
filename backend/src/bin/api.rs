@@ -18,7 +18,8 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::from_env();
     let auth_config = AuthConfig::from_env()?;
 
-    let pool = db::connect(&config.database_url).await?;
+    // Human-triggered request load — the MVP's own ≤10 users is plenty.
+    let pool = db::connect(&config.database_url, 10).await?;
     db::migrate(&pool).await?;
     info!("database migrations up to date");
 
