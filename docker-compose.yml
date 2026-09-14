@@ -70,9 +70,11 @@ services:
   frontend:
     build:
       context: ./frontend
+      # Baked into the client JS bundle at build time (see frontend/Dockerfile)
+      # — a plain `environment:` entry below would only reach server-side code.
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8080
     restart: unless-stopped
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8080
     ports:
       - "3000:3000"
     depends_on:

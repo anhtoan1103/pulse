@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pulse — Frontend
 
-## Getting Started
+Next.js (App Router) dashboard for [Pulse](../README.md). Talks to the
+`backend-api` service via `NEXT_PUBLIC_API_URL` — see `docs/pulse-api-spec.md`
+for the API it consumes.
 
-First, run the development server:
+## Local dev
 
 ```bash
+cp .env.local.example .env.local   # sets NEXT_PUBLIC_API_URL for local dev
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Needs the backend API running (`docker compose up postgres redis backend-api`
+from the repo root, or `cargo run --bin api`). Without a real `AI_API_KEY`/
+`SMTP_HOST` configured on the backend, incidents show "AI analysis is not
+enabled" and health digests/incident emails just don't get sent — the
+dashboard itself still works fully against real check/incident data.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `src/lib/api.ts` — typed client for every backend endpoint the dashboard
+  uses; throws `ApiError` on non-2xx (standard `{error:{code,message}}` body).
+- `src/lib/auth.tsx` — client-side session (JWT in `localStorage`),
+  `<RequireAuth>` guards protected pages.
+- `src/lib/useAsync.ts` — small fetch-in-effect hook (loading/error/data +
+  `reload()`); no data-fetching library dependency.
+- `src/components/` — shared UI (`ui.tsx` primitives, `EndpointForm`,
+  `LatencyChart` — a dependency-free inline SVG chart, `IncidentStatusBadge`).
+- `src/app/` — routes: `/login`, `/register`, `/` (endpoints list),
+  `/endpoints/new`, `/endpoints/[id]` (detail: chart, incidents, health
+  digests, edit/pause/delete), `/incidents`, `/incidents/[id]` (AI analysis,
+  resolve).
 
-## Learn More
+## Notes
 
-To learn more about Next.js, take a look at the following resources:
+- `NEXT_PUBLIC_API_URL` is inlined into the client bundle at **build** time,
+  not read at container runtime — `docker-compose.yml` passes it as a
+  `build.args` entry, not `environment:` (see `Dockerfile`'s comment). If you
+  change the backend's URL for a deployment, rebuild the frontend image.
+- No admin panel yet (project-context §6 step 11, not built).
+- OAuth login isn't implemented (deferred with the backend, until a real
+  domain exists for callback URLs).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Learn more
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+[Next.js docs](https://nextjs.org/docs) · [Learn Next.js](https://nextjs.org/learn)

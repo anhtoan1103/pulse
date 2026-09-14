@@ -11,7 +11,7 @@ AI design).
 
 ## Status
 
-Implement-order steps 1–9 of
+Implement-order steps 1–10 of
 [`docs/pulse-project-context.md`](docs/pulse-project-context.md) §6 done:
 
 - **Auth** (email/password): register, login (JWT), `me`, logout; Argon2id,
@@ -67,7 +67,17 @@ Implement-order steps 1–9 of
   a period generate exactly once even with several worker replicas; missed
   periods (e.g. the worker was down) aren't backfilled.
 
-Next step is the frontend dashboard, connected to the API (step 10).
+- **Frontend dashboard** (Next.js, [`frontend/`](frontend/)): email/password
+  login, endpoints list/create/edit/pause/delete, an endpoint's latency chart
+  (dependency-free inline SVG) + recent incidents + health digests, a global
+  incidents list with an open/resolved filter, and an incident detail page
+  showing before/after metrics, the AI analysis (or why it's missing), and a
+  resolve action. Everything is ownership-scoped by the API it talks to, so
+  the UI itself does no authorization of its own. No admin panel yet (that's
+  step 11).
+
+Next step is the admin panel (step 11), then Cloudflare Tunnel + a real
+domain (step 12).
 
 ## Tech stack
 
@@ -105,7 +115,8 @@ Without Docker:
 - **Backend**: `cd backend && cargo run --bin api` (or `--bin worker`).
   Needs `DATABASE_URL`/`REDIS_URL` pointing at a running Postgres/Redis
   (e.g. `docker compose up postgres redis`).
-- **Frontend**: `cd frontend && npm run dev`.
+- **Frontend**: `cd frontend && cp .env.local.example .env.local && npm run dev`
+  (see [`frontend/README.md`](frontend/README.md)).
 
 ### Windows note
 
