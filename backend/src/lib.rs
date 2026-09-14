@@ -11,8 +11,10 @@ pub mod db;
 pub mod endpoints;
 pub mod error;
 pub mod extract;
+pub mod queue;
 pub mod rate_limit;
 pub mod ssrf;
+pub mod worker;
 
 /// Initializes `tracing` with an env-filter (`RUST_LOG`, default `info`).
 /// Call once at the top of each binary's `main()`.

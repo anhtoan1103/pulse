@@ -11,7 +11,7 @@ AI design).
 
 ## Status
 
-Implement-order steps 1–4 of
+Implement-order steps 1–5 of
 [`docs/pulse-project-context.md`](docs/pulse-project-context.md) §6 done:
 
 - **Auth** (email/password): register, login (JWT), `me`, logout; Argon2id,
@@ -22,7 +22,14 @@ Implement-order steps 1–4 of
   validation of target URLs (private/loopback/link-local/reserved addresses
   rejected after DNS resolution).
 
-Next step is the Checker Worker + Scheduler (step 5).
+- **Scheduler + Checker Worker** (`worker` binary): claims due endpoints
+  every second (`FOR UPDATE SKIP LOCKED`, safe with several replicas),
+  queues jobs in Redis, runs up to 100 concurrent HTTP checks and writes
+  `checks` rows. SSRF is enforced again at request time: DNS answers,
+  literal IPs and every redirect hop are checked; 10s timeout; graceful
+  shutdown on SIGTERM.
+
+Next step is the Anomaly Detector (step 6).
 
 ## Tech stack
 
@@ -84,7 +91,7 @@ builds — Docker and CI both build on Linux and are unaffected.
 
 - Backend: `cargo test` (integration-test-first per
   [`docs/pulse-api-spec.md`](docs/pulse-api-spec.md) §9). Needs a running
-  Postgres (`docker compose up -d postgres`) and `DATABASE_URL` set (the
+  Postgres + Redis (`docker compose up -d postgres redis`) and `DATABASE_URL` set (the
   `.env` value works) — `#[sqlx::test]` creates a throwaway database per test
   and applies the migrations to it, so dev data is never touched.
 
