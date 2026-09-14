@@ -10,7 +10,7 @@
 
 use axum::{
     Json,
-    extract::rejection::{JsonRejection, PathRejection},
+    extract::rejection::{JsonRejection, PathRejection, QueryRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -109,5 +109,13 @@ impl From<JsonRejection> for ApiError {
 impl From<PathRejection> for ApiError {
     fn from(_: PathRejection) -> Self {
         Self::bad_request("invalid path parameter")
+    }
+}
+
+/// A malformed query param (e.g. `limit=abc`) is a 422, consistent with
+/// other input validation — same status as an out-of-range value.
+impl From<QueryRejection> for ApiError {
+    fn from(rejection: QueryRejection) -> Self {
+        Self::validation(rejection.body_text())
     }
 }

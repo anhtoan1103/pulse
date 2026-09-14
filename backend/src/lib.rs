@@ -15,6 +15,8 @@ pub mod endpoints;
 pub mod error;
 pub mod extract;
 pub mod health_digest;
+pub mod incidents;
+pub mod metrics;
 pub mod notify;
 pub mod queue;
 pub mod rate_limit;

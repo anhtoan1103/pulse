@@ -18,6 +18,12 @@ pub struct ApiPath<T>(pub T);
 #[from_request(via(axum::Json), rejection(ApiError))]
 pub struct ApiJson<T>(pub T);
 
+/// `axum::extract::Query`, but rejections (e.g. `limit=abc`) render in the
+/// standard API error format instead of axum's default plain-text 400.
+#[derive(FromRequestParts)]
+#[from_request(via(axum::extract::Query), rejection(ApiError))]
+pub struct ApiQuery<T>(pub T);
+
 /// Client IP for rate limiting: from `AuthConfig::client_ip_header` when
 /// configured (behind Cloudflare Tunnel every TCP peer is `cloudflared`
 /// itself), otherwise the TCP peer address.

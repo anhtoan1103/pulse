@@ -21,6 +21,10 @@ Implement-order steps 1–9 of
   endpoints are a 404), range validation, 50 endpoints/user, and SSRF
   validation of target URLs (private/loopback/link-local/reserved addresses
   rejected after DNS resolution).
+- **Metrics + Incidents read API** (`/api/v1/endpoints/{id}/checks[/summary]`,
+  `/health-digests`, `/api/v1/incidents[/{id}][/resolve]`): all
+  ownership-scoped the same way. Resolving an incident is a manual, idempotent
+  action — the Anomaly Detector itself never resolves (see recovered_at).
 
 - **Scheduler + Checker Worker** (`worker` binary): claims due endpoints
   every second (`FOR UPDATE SKIP LOCKED`, safe with several replicas),

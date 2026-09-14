@@ -6,6 +6,7 @@ use crate::{
     config::AuthConfig,
     endpoints,
     error::ApiError,
+    incidents, metrics,
     rate_limit::RateLimiter,
     ssrf::HostResolver,
 };
@@ -59,7 +60,8 @@ impl AppState {
 pub fn router(state: AppState) -> Router {
     let api_v1 = Router::new()
         .nest("/auth", auth::routes())
-        .nest("/endpoints", endpoints::routes());
+        .nest("/endpoints", endpoints::routes().merge(metrics::routes()))
+        .nest("/incidents", incidents::routes());
 
     Router::new()
         .route("/health", get(health))
