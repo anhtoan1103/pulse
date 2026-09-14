@@ -4,6 +4,8 @@
 //! Checker Worker) depend on this crate so config loading, DB pool setup,
 //! and (later) domain logic live in one place instead of being duplicated.
 
+pub mod analysis;
+pub mod anomaly;
 pub mod app;
 pub mod auth;
 pub mod config;

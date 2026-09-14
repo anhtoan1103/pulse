@@ -11,7 +11,7 @@ AI design).
 
 ## Status
 
-Implement-order steps 1–5 of
+Implement-order steps 1–6 of
 [`docs/pulse-project-context.md`](docs/pulse-project-context.md) §6 done:
 
 - **Auth** (email/password): register, login (JWT), `me`, logout; Argon2id,
@@ -29,7 +29,16 @@ Implement-order steps 1–5 of
   literal IPs and every redirect hop are checked; 10s timeout; graceful
   shutdown on SIGTERM.
 
-Next step is the Anomaly Detector (step 6).
+- **Anomaly Detector**: runs after every recorded check; opens an incident
+  (`ai_status = pending`) when the last 5 minutes (min. 3 checks) exceed the
+  endpoint's latency or error-rate threshold, with before/after metric
+  snapshots. One open incident per endpoint + reason, auto-resolve on
+  recovery, 10-minute re-open cooldown.
+- **AI context preparation** (`prepare_ai_context()`): aggregates recent
+  status codes/errors and redacts secrets, neutralizes prompt injection and
+  truncates text before anything reaches an LLM.
+
+Next step is the AI Analysis Service (step 7).
 
 ## Tech stack
 

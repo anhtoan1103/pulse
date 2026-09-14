@@ -2,9 +2,10 @@
 //! `checks` row (docs/pulse-architecture.md #2.2, #3 step 2).
 
 use super::checker::{CheckOutcome, HttpChecker};
-use crate::queue::CheckJob;
+use crate::{anomaly, queue::CheckJob};
 use chrono::Utc;
 use sqlx::PgPool;
+use tracing::{info, warn};
 
 #[derive(Debug, PartialEq)]
 pub enum JobResult {
@@ -59,7 +60,26 @@ pub async fn process_job(
     .await;
 
     match inserted {
-        Ok(_) => Ok(JobResult::Recorded(outcome)),
+        Ok(_) => {
+            // Detection runs right after each new metric (architecture #2.4).
+            // A detector failure is logged but doesn't fail the job: the check
+            // itself is recorded, and the next check re-evaluates anyway.
+            match anomaly::evaluate_endpoint(pool, job.endpoint_id).await {
+                Ok(eval) if !eval.opened.is_empty() || !eval.resolved.is_empty() => info!(
+                    endpoint_id = %job.endpoint_id,
+                    opened = ?eval.opened,
+                    resolved = ?eval.resolved,
+                    "incidents updated"
+                ),
+                Ok(_) => {}
+                Err(e) => warn!(
+                    endpoint_id = %job.endpoint_id,
+                    error = format!("{e:#}"),
+                    "anomaly detection failed"
+                ),
+            }
+            Ok(JobResult::Recorded(outcome))
+        }
         // FK violation: endpoint deleted while the request was in flight.
         Err(e)
             if e.as_database_error()
