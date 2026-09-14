@@ -7,8 +7,9 @@
 
 use pulse_backend::{
     analysis::llm::{self, LlmClient},
-    config::{AiConfig, Config},
+    config::{AiConfig, Config, EmailConfig},
     db,
+    notify::{email::Mailer, service::Notifier},
     queue::{CheckQueue, DEFAULT_QUEUE_KEY},
     worker::{
         self,
@@ -33,6 +34,16 @@ async fn main() -> anyhow::Result<()> {
             None
         }
     };
+    let notifier = match EmailConfig::from_env()? {
+        Some(email) => Some(Notifier {
+            mailer: Mailer::new(&email)?,
+            frontend_url: email.frontend_url,
+        }),
+        None => {
+            warn!("SMTP_HOST not set: email notifications disabled, they stay pending");
+            None
+        }
+    };
 
     let shutdown = CancellationToken::new();
     tokio::spawn({
@@ -45,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     info!(env = %config.app_env, "pulse-worker started");
-    worker::run(pool, queue, checker, analyzer, shutdown).await;
+    worker::run(pool, queue, checker, analyzer, notifier, shutdown).await;
     Ok(())
 }
 

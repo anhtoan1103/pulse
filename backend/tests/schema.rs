@@ -63,6 +63,7 @@ async fn all_tables_exist(pool: PgPool) {
             "endpoints",
             "health_digests",
             "incidents",
+            "notifications",
             "users"
         ]
     );

@@ -478,6 +478,7 @@ async fn worker_run_checks_due_endpoints_end_to_end(pool: PgPool) {
         queue,
         test_checker(),
         None,
+        None,
         shutdown.clone(),
     ));
 

@@ -105,6 +105,83 @@ fn non_empty_var(key: &str) -> Option<String> {
     env::var(key).ok().filter(|v| !v.trim().is_empty())
 }
 
+/// How the SMTP connection is secured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SmtpTls {
+    /// TLS from the first byte (usually port 465).
+    Wrapper,
+    /// Plaintext, then mandatory STARTTLS (usually port 587). Never falls
+    /// back to plaintext.
+    StartTls,
+    /// No encryption — only for a local dev relay (e.g. Mailpit).
+    None,
+}
+
+/// SMTP settings for the Notification Service (worker only).
+///
+/// No `Debug` derive: holds the SMTP password.
+#[derive(Clone)]
+pub struct EmailConfig {
+    pub host: String,
+    pub port: u16,
+    pub tls: SmtpTls,
+    /// `None` for relays without auth (local dev).
+    pub credentials: Option<(String, String)>,
+    /// e.g. `noreply@toan.uk` or `Pulse <noreply@toan.uk>`.
+    pub from: String,
+    /// Base URL for links in emails, e.g. `https://pulse.toan.uk`.
+    pub frontend_url: String,
+}
+
+impl EmailConfig {
+    /// `Ok(None)` when `SMTP_HOST` is unset — email is then disabled and
+    /// notifications stay `pending` until SMTP is configured.
+    ///
+    /// `SMTP_TLS`: `tls` | `starttls` | `none`; default `tls` for port 465,
+    /// otherwise `starttls`.
+    pub fn from_env() -> anyhow::Result<Option<Self>> {
+        let Some(host) = non_empty_var("SMTP_HOST") else {
+            return Ok(None);
+        };
+        let port = match non_empty_var("SMTP_PORT") {
+            Some(p) => p
+                .trim()
+                .parse::<u16>()
+                .map_err(|_| anyhow::anyhow!("SMTP_PORT must be a port number"))?,
+            None => 587,
+        };
+        let tls = match non_empty_var("SMTP_TLS").map(|v| v.trim().to_ascii_lowercase()) {
+            None if port == 465 => SmtpTls::Wrapper,
+            None => SmtpTls::StartTls,
+            Some(v) if v == "tls" => SmtpTls::Wrapper,
+            Some(v) if v == "starttls" => SmtpTls::StartTls,
+            Some(v) if v == "none" => SmtpTls::None,
+            Some(other) => anyhow::bail!("SMTP_TLS must be tls, starttls or none (got {other:?})"),
+        };
+        let credentials = match (non_empty_var("SMTP_USER"), non_empty_var("SMTP_PASSWORD")) {
+            (Some(user), Some(password)) => Some((user.trim().to_string(), password)),
+            (None, None) => None,
+            _ => anyhow::bail!("SMTP_USER and SMTP_PASSWORD must be set together"),
+        };
+        let from = non_empty_var("SMTP_FROM")
+            .ok_or_else(|| anyhow::anyhow!("SMTP_FROM must be set when SMTP_HOST is set"))?;
+        let frontend_url = non_empty_var("FRONTEND_URL")
+            .unwrap_or_else(|| "http://localhost:3000".into())
+            .trim()
+            .trim_end_matches('/')
+            .to_string();
+
+        Ok(Some(Self {
+            host: host.trim().to_string(),
+            port,
+            tls,
+            credentials,
+            from: from.trim().to_string(),
+            frontend_url,
+        }))
+    }
+}
+
 /// LLM provider settings for the AI Analysis Service (worker only).
 /// Providers are reached through their OpenAI-compatible APIs, so switching
 /// provider is just config (project-context #2).

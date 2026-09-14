@@ -26,6 +26,7 @@ use super::{
     output::{AiAnalysis, json_schema, parse_analysis},
     prompt::{build_messages, build_retry_messages},
 };
+use crate::backoff;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use std::time::Duration;
@@ -136,7 +137,8 @@ async fn handle_llm_error(
                 )
                 .await;
             }
-            let delay = backoff(attempt).max(retry_after.unwrap_or_default());
+            let delay = backoff::exponential(attempt, BACKOFF_BASE, BACKOFF_MAX)
+                .max(retry_after.unwrap_or_default());
             let next = Utc::now() + chrono::Duration::from_std(delay)?;
             sqlx::query(
                 "UPDATE incidents SET ai_next_attempt_at = $2, ai_error = $3
@@ -201,14 +203,6 @@ async fn mark_failed(
     Ok(AnalysisOutcome::Failed(reason.to_string()))
 }
 
-/// 1 min, 2 min, 4 min, ... capped at 30 min.
-pub fn backoff(attempt: i32) -> Duration {
-    let exponent = attempt.saturating_sub(1).clamp(0, 16) as u32;
-    BACKOFF_BASE
-        .saturating_mul(2u32.saturating_pow(exponent))
-        .min(BACKOFF_MAX)
-}
-
 /// Claims and analyzes one incident, if any is due.
 pub async fn run_once(
     pool: &PgPool,
@@ -247,19 +241,4 @@ pub async fn run_loop(pool: PgPool, llm: LlmClient, shutdown: CancellationToken)
         }
     }
     info!("AI analysis loop stopped");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn backoff_grows_and_caps() {
-        assert_eq!(backoff(1), Duration::from_secs(60));
-        assert_eq!(backoff(2), Duration::from_secs(120));
-        assert_eq!(backoff(4), Duration::from_secs(480));
-        assert_eq!(backoff(10), BACKOFF_MAX);
-        assert_eq!(backoff(i32::MAX), BACKOFF_MAX);
-        assert_eq!(backoff(0), Duration::from_secs(60));
-    }
 }

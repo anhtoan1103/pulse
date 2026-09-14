@@ -23,6 +23,7 @@
 //!   endpoint still flaps can't open (and pay for AI analysis of) a new one
 //!   on every check.
 
+use crate::notify;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgConnection, PgPool};
@@ -229,7 +230,12 @@ pub async fn evaluate_endpoint(pool: &PgPool, endpoint_id: Uuid) -> anyhow::Resu
                 .bind(sqlx::types::Json(&after))
                 .fetch_optional(&mut *tx)
                 .await?;
-                evaluation.opened.extend(id);
+                if let Some(id) = id {
+                    // Same transaction: the email can't be lost if we crash
+                    // right after opening the incident.
+                    notify::service::enqueue_incident_opened(&mut tx, id).await?;
+                    evaluation.opened.push(id);
+                }
             }
             // Healthy again: flag it so the UI suggests resolving — don't resolve.
             (false, Some((incident_id, false))) => {

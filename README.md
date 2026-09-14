@@ -11,7 +11,7 @@ AI design).
 
 ## Status
 
-Implement-order steps 1–7 of
+Implement-order steps 1–8 of
 [`docs/pulse-project-context.md`](docs/pulse-project-context.md) §6 done:
 
 - **Auth** (email/password): register, login (JWT), `me`, logout; Argon2id,
@@ -48,7 +48,14 @@ Implement-order steps 1–7 of
   claims make it safe with several workers. Disabled when `AI_API_KEY` is
   empty.
 
-Next step is the Notification Service — email (step 8).
+- **Email notifications** (in the `worker`): opening an incident writes a
+  row to a `notifications` outbox in the same transaction; the notifier
+  emails the endpoint owner once AI analysis is done (or failed), waiting at
+  most 3 minutes. Transient SMTP errors retry with backoff (5 attempts),
+  permanent ones fail, disabled users are skipped. Disabled when `SMTP_HOST`
+  is empty.
+
+Next step is the periodic Health Digest (step 9).
 
 ## Tech stack
 

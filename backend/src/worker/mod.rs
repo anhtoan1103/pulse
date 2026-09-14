@@ -9,6 +9,7 @@ pub mod scheduler;
 
 use crate::{
     analysis::{llm::LlmClient, service as analysis},
+    notify::service::{self as notify, Notifier},
     queue::CheckQueue,
 };
 use checker::HttpChecker;
@@ -31,14 +32,25 @@ const ERROR_BACKOFF: Duration = Duration::from_secs(2);
 
 /// Runs until `shutdown` is cancelled, then stops scheduling/consuming and
 /// waits for in-flight checks to finish. `analyzer` is `None` when no AI
-/// provider is configured: incidents are still opened, but stay `pending`.
+/// provider is configured (incidents stay `pending`); `notifier` is `None`
+/// when SMTP isn't configured (notifications stay `pending`).
 pub async fn run(
     pool: PgPool,
     queue: CheckQueue,
     checker: HttpChecker,
     analyzer: Option<LlmClient>,
+    notifier: Option<Notifier>,
     shutdown: CancellationToken,
 ) {
+    let wait_for_ai = analyzer.is_some();
+    let notifications = notifier.map(|notifier| {
+        tokio::spawn(notify::run_loop(
+            pool.clone(),
+            notifier,
+            wait_for_ai,
+            shutdown.clone(),
+        ))
+    });
     let analysis =
         analyzer.map(|llm| tokio::spawn(analysis::run_loop(pool.clone(), llm, shutdown.clone())));
     let scheduler = tokio::spawn(scheduler_loop(
@@ -48,8 +60,8 @@ pub async fn run(
     ));
     consumer_loop(pool, queue, Arc::new(checker), shutdown).await;
     let _ = scheduler.await;
-    if let Some(analysis) = analysis {
-        let _ = analysis.await;
+    for task in [analysis, notifications].into_iter().flatten() {
+        let _ = task.await;
     }
     info!("worker stopped");
 }
