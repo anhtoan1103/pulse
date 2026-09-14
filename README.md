@@ -11,7 +11,7 @@ AI design).
 
 ## Status
 
-Implement-order steps 1–10 of
+Implement-order steps 1–11 of
 [`docs/pulse-project-context.md`](docs/pulse-project-context.md) §6 done:
 
 - **Auth** (email/password): register, login (JWT), `me`, logout; Argon2id,
@@ -73,11 +73,17 @@ Implement-order steps 1–10 of
   incidents list with an open/resolved filter, and an incident detail page
   showing before/after metrics, the AI analysis (or why it's missing), and a
   resolve action. Everything is ownership-scoped by the API it talks to, so
-  the UI itself does no authorization of its own. No admin panel yet (that's
-  step 11).
+  the UI itself does no authorization of its own.
+- **Admin panel** (`/api/v1/admin/*` + `/admin` in the frontend): list all
+  users, enable/disable an account, promote/demote admin. A single
+  `AdminUser` extractor gates every route the same way (403, not 404 — the
+  routes existing isn't a secret). An admin can't disable their own account
+  or remove their own admin role, in either the API or the UI — there's no
+  promote-to-admin flow (a new admin comes from `ADMIN_SEED_*`), so locking
+  out the last admin would be unrecoverable through the app itself.
 
-Next step is the admin panel (step 11), then Cloudflare Tunnel + a real
-domain (step 12).
+Next step is Cloudflare Tunnel + a real domain (step 12) — the last one in
+the implement order.
 
 ## Tech stack
 

@@ -257,3 +257,31 @@ export function getIncident(id: string) {
 export function resolveIncident(id: string) {
   return request<IncidentDetail>("PATCH", `/api/v1/incidents/${id}/resolve`);
 }
+
+// ---------- admin (api-spec #6) ----------
+
+export interface AdminUserView {
+  id: string;
+  email: string;
+  role: "admin" | "user";
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AdminStats {
+  total_users: number;
+  active_endpoints: number;
+  incidents_last_24h: number;
+}
+
+export function adminListUsers() {
+  return request<{ users: AdminUserView[] }>("GET", "/api/v1/admin/users");
+}
+
+export function adminUpdateUser(id: string, input: { is_active?: boolean; role?: "admin" | "user" }) {
+  return request<AdminUserView>("PATCH", `/api/v1/admin/users/${id}`, { body: input });
+}
+
+export function adminStats() {
+  return request<AdminStats>("GET", "/api/v1/admin/stats");
+}

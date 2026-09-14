@@ -2,6 +2,7 @@
 //! tests can drive the exact same app in-process.
 
 use crate::{
+    admin,
     auth::{self, token::JwtKeys},
     config::AuthConfig,
     endpoints,
@@ -61,7 +62,8 @@ pub fn router(state: AppState) -> Router {
     let api_v1 = Router::new()
         .nest("/auth", auth::routes())
         .nest("/endpoints", endpoints::routes().merge(metrics::routes()))
-        .nest("/incidents", incidents::routes());
+        .nest("/incidents", incidents::routes())
+        .nest("/admin", admin::routes());
 
     Router::new()
         .route("/health", get(health))

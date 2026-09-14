@@ -25,6 +25,14 @@ export function Nav() {
             >
               Incidents
             </Link>
+            {user?.role === "admin" && (
+              <Link
+                href="/admin"
+                className="text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
+              >
+                Admin
+              </Link>
+            )}
             <span className="hidden text-zinc-400 sm:inline dark:text-zinc-600">{user?.email}</span>
             <button
               onClick={logout}

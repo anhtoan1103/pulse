@@ -31,7 +31,9 @@ dashboard itself still works fully against real check/incident data.
 - `src/app/` — routes: `/login`, `/register`, `/` (endpoints list),
   `/endpoints/new`, `/endpoints/[id]` (detail: chart, incidents, health
   digests, edit/pause/delete), `/incidents`, `/incidents/[id]` (AI analysis,
-  resolve).
+  resolve), `/admin` (users list, enable/disable, promote/demote — shown in
+  the nav and reachable only for `role: "admin"`; the API is what actually
+  enforces this).
 
 ## Notes
 
@@ -39,7 +41,6 @@ dashboard itself still works fully against real check/incident data.
   not read at container runtime — `docker-compose.yml` passes it as a
   `build.args` entry, not `environment:` (see `Dockerfile`'s comment). If you
   change the backend's URL for a deployment, rebuild the frontend image.
-- No admin panel yet (project-context §6 step 11, not built).
 - OAuth login isn't implemented (deferred with the backend, until a real
   domain exists for callback URLs).
 
