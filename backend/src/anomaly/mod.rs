@@ -1,5 +1,5 @@
 //! Anomaly Detector — compares recent checks against the endpoint's static
-//! thresholds and opens/resolves incidents (docs/pulse-architecture.md #2.4,
+//! thresholds and opens incidents (docs/pulse-architecture.md #2.4,
 //! PRD #6: static per-endpoint thresholds, no dynamic baseline in MVP).
 //!
 //! Runs after every recorded check. Decisions (not fixed by the design docs):
@@ -13,10 +13,14 @@
 //!   strictly above `latency_threshold_ms`, or its failure rate is strictly
 //!   above `error_rate_threshold_percent` ("latency > 2s, error rate > 5%").
 //! - **One open incident per endpoint + reason** (also a unique index).
-//! - **Auto-resolve** when the window is back within threshold — otherwise a
-//!   single never-resolved incident would silence every later outage.
-//! - **Re-open cooldown** of [`REOPEN_COOLDOWN`] per endpoint + reason, so a
-//!   flapping endpoint can't open (and pay for AI analysis of) an incident
+//! - **Never auto-resolves** — resolving is the user's decision. When the
+//!   window is back within threshold the open incident gets `recovered_at`
+//!   set, which the dashboard shows as a suggestion to resolve it. If the
+//!   endpoint breaches again while the incident is still open,
+//!   `recovered_at` is cleared (the same incident continues; no new one).
+//! - **Re-open cooldown** of [`REOPEN_COOLDOWN`] per endpoint + reason after
+//!   the previous incident was triggered, so resolving an incident while the
+//!   endpoint still flaps can't open (and pay for AI analysis of) a new one
 //!   on every check.
 
 use chrono::{DateTime, Duration, Utc};
@@ -137,10 +141,16 @@ pub fn breached_thresholds(
 pub struct Evaluation {
     /// Newly opened incidents (`ai_status = 'pending'`) — step 7 analyzes these.
     pub opened: Vec<Uuid>,
-    pub resolved: Vec<Uuid>,
+    /// Open incidents whose metrics just came back within threshold
+    /// (`recovered_at` set → UI suggests resolving).
+    pub recovered: Vec<Uuid>,
+    /// Open, previously recovered incidents that breached again
+    /// (`recovered_at` cleared).
+    pub relapsed: Vec<Uuid>,
 }
 
-/// Evaluates one endpoint's recent checks and opens/resolves incidents.
+/// Evaluates one endpoint's recent checks: opens incidents and flags open
+/// ones as recovered / relapsed. Never resolves.
 pub async fn evaluate_endpoint(pool: &PgPool, endpoint_id: Uuid) -> anyhow::Result<Evaluation> {
     let mut tx = pool.begin().await?;
 
@@ -174,8 +184,9 @@ pub async fn evaluate_endpoint(pool: &PgPool, endpoint_id: Uuid) -> anyhow::Resu
     );
     let breached = breached_thresholds(&after, latency_threshold, error_rate_threshold);
 
-    let open: Vec<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, trigger_reason FROM incidents WHERE endpoint_id = $1 AND resolved_at IS NULL",
+    let open: Vec<(Uuid, String, Option<DateTime<Utc>>)> = sqlx::query_as(
+        "SELECT id, trigger_reason, recovered_at FROM incidents
+         WHERE endpoint_id = $1 AND resolved_at IS NULL",
     )
     .bind(endpoint_id)
     .fetch_all(&mut *tx)
@@ -187,8 +198,8 @@ pub async fn evaluate_endpoint(pool: &PgPool, endpoint_id: Uuid) -> anyhow::Resu
     for reason in TriggerReason::ALL {
         let open_incident = open
             .iter()
-            .find(|(_, r)| r == reason.as_str())
-            .map(|(id, _)| *id);
+            .find(|(_, r, _)| r == reason.as_str())
+            .map(|(id, _, recovered_at)| (*id, recovered_at.is_some()));
 
         match (breached.contains(&reason), open_incident) {
             (true, None) => {
@@ -220,17 +231,25 @@ pub async fn evaluate_endpoint(pool: &PgPool, endpoint_id: Uuid) -> anyhow::Resu
                 .await?;
                 evaluation.opened.extend(id);
             }
-            (false, Some(incident_id)) => {
-                sqlx::query(
-                    "UPDATE incidents SET resolved_at = $2 WHERE id = $1 AND resolved_at IS NULL",
-                )
-                .bind(incident_id)
-                .bind(now)
-                .execute(&mut *tx)
-                .await?;
-                evaluation.resolved.push(incident_id);
+            // Healthy again: flag it so the UI suggests resolving — don't resolve.
+            (false, Some((incident_id, false))) => {
+                sqlx::query("UPDATE incidents SET recovered_at = $2 WHERE id = $1")
+                    .bind(incident_id)
+                    .bind(now)
+                    .execute(&mut *tx)
+                    .await?;
+                evaluation.recovered.push(incident_id);
             }
-            // Still breaching with an incident open, or healthy with none.
+            // Breaching again before the user resolved it: withdraw the suggestion.
+            (true, Some((incident_id, true))) => {
+                sqlx::query("UPDATE incidents SET recovered_at = NULL WHERE id = $1")
+                    .bind(incident_id)
+                    .execute(&mut *tx)
+                    .await?;
+                evaluation.relapsed.push(incident_id);
+            }
+            // Still breaching and not recovered, still healthy and already
+            // flagged, or healthy with nothing open.
             _ => {}
         }
     }

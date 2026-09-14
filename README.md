@@ -32,8 +32,9 @@ Implement-order steps 1–6 of
 - **Anomaly Detector**: runs after every recorded check; opens an incident
   (`ai_status = pending`) when the last 5 minutes (min. 3 checks) exceed the
   endpoint's latency or error-rate threshold, with before/after metric
-  snapshots. One open incident per endpoint + reason, auto-resolve on
-  recovery, 10-minute re-open cooldown.
+  snapshots. One open incident per endpoint + reason; never auto-resolves —
+  on recovery it sets `recovered_at` so the dashboard can suggest resolving
+  (cleared if it breaches again); 10-minute re-open cooldown.
 - **AI context preparation** (`prepare_ai_context()`): aggregates recent
   status codes/errors and redacts secrets, neutralizes prompt injection and
   truncates text before anything reaches an LLM.

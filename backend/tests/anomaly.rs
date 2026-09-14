@@ -148,7 +148,7 @@ async fn latency_breach_opens_pending_incident_with_snapshots(pool: PgPool) {
 
     let eval = evaluate_endpoint(&pool, ep).await.unwrap();
     assert_eq!(eval.opened.len(), 1);
-    assert!(eval.resolved.is_empty());
+    assert!(eval.recovered.is_empty() && eval.relapsed.is_empty());
 
     let rows = incidents(&pool, ep).await;
     let (id, reason, ai_status, resolved_at, before, after) = &rows[0];
@@ -223,8 +223,22 @@ async fn does_not_duplicate_while_incident_is_open(pool: PgPool) {
     assert_eq!(incidents(&pool, ep).await.len(), 1);
 }
 
+type Timestamps = (Option<chrono::DateTime<Utc>>, Option<chrono::DateTime<Utc>>);
+
+/// `(recovered_at, resolved_at)` of an incident.
+async fn recovery_state(pool: &PgPool, incident: Uuid) -> Timestamps {
+    sqlx::query_as("SELECT recovered_at, resolved_at FROM incidents WHERE id = $1")
+        .bind(incident)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// Recovery never resolves: the incident stays open with `recovered_at` set
+/// (the dashboard suggests resolving). A later breach withdraws the
+/// suggestion on the same incident instead of opening a new one.
 #[sqlx::test(migrator = "MIGRATOR")]
-async fn auto_resolves_when_back_within_threshold(pool: PgPool) {
+async fn recovery_suggests_resolving_and_relapse_withdraws_it(pool: PgPool) {
     let ep = setup_endpoint(&pool).await;
     // Outage 6–8 min ago (outside the 5-min window, but widened to last 3).
     for m in [8, 7, 6] {
@@ -232,15 +246,59 @@ async fn auto_resolves_when_back_within_threshold(pool: PgPool) {
     }
     let opened = evaluate_endpoint(&pool, ep).await.unwrap().opened;
     assert_eq!(opened.len(), 1);
+    let incident = opened[0];
+    assert_eq!(recovery_state(&pool, incident).await, (None, None));
 
-    // Recovery: three healthy checks in the last 5 minutes.
-    for s in [30, 20, 10] {
+    // Recovery: healthy checks in the last 5 minutes.
+    for s in [50, 45, 40] {
         healthy(&pool, ep, secs(s)).await;
     }
     let eval = evaluate_endpoint(&pool, ep).await.unwrap();
-    assert_eq!(eval.resolved, opened);
+    assert_eq!(eval.recovered, [incident]);
+    assert!(eval.opened.is_empty() && eval.relapsed.is_empty());
+    let (recovered, resolved) = recovery_state(&pool, incident).await;
+    assert!(recovered.is_some(), "resolve suggestion flagged");
+    assert!(resolved.is_none(), "never auto-resolved");
+
+    // Still healthy: flag and its timestamp stay, nothing new reported.
+    healthy(&pool, ep, secs(35)).await;
+    assert_eq!(
+        evaluate_endpoint(&pool, ep).await.unwrap(),
+        Evaluation::default()
+    );
+    assert_eq!(recovery_state(&pool, incident).await.0, recovered);
+
+    // Relapse while still open: suggestion withdrawn, same incident continues.
+    for s in [30, 25, 20, 15, 10, 5] {
+        failing(&pool, ep, secs(s)).await;
+    }
+    let eval = evaluate_endpoint(&pool, ep).await.unwrap();
+    assert_eq!(eval.relapsed, [incident]);
     assert!(eval.opened.is_empty());
-    assert!(incidents(&pool, ep).await[0].3.is_some(), "resolved_at set");
+    assert_eq!(recovery_state(&pool, incident).await, (None, None));
+    assert_eq!(incidents(&pool, ep).await.len(), 1);
+}
+
+/// After the user resolves an incident, a new breach (once the cooldown has
+/// passed) opens a fresh incident.
+#[sqlx::test(migrator = "MIGRATOR")]
+async fn breach_after_user_resolves_opens_new_incident(pool: PgPool) {
+    let ep = setup_endpoint(&pool).await;
+    for s in [30, 20, 10] {
+        failing(&pool, ep, secs(s)).await;
+    }
+    let first = evaluate_endpoint(&pool, ep).await.unwrap().opened[0];
+
+    sqlx::query("UPDATE incidents SET resolved_at = now(), triggered_at = $2 WHERE id = $1")
+        .bind(first)
+        .bind(Utc::now() - REOPEN_COOLDOWN - secs(1))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let second = evaluate_endpoint(&pool, ep).await.unwrap().opened;
+    assert_eq!(second.len(), 1);
+    assert_ne!(second[0], first);
 }
 
 #[sqlx::test(migrator = "MIGRATOR")]

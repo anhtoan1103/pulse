@@ -65,10 +65,11 @@ pub async fn process_job(
             // A detector failure is logged but doesn't fail the job: the check
             // itself is recorded, and the next check re-evaluates anyway.
             match anomaly::evaluate_endpoint(pool, job.endpoint_id).await {
-                Ok(eval) if !eval.opened.is_empty() || !eval.resolved.is_empty() => info!(
+                Ok(eval) if eval != anomaly::Evaluation::default() => info!(
                     endpoint_id = %job.endpoint_id,
                     opened = ?eval.opened,
-                    resolved = ?eval.resolved,
+                    recovered = ?eval.recovered,
+                    relapsed = ?eval.relapsed,
                     "incidents updated"
                 ),
                 Ok(_) => {}
