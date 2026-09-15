@@ -11,6 +11,9 @@ pub struct Config {
     pub app_env: String,
     /// Address the API server binds to, e.g. "0.0.0.0:8080".
     pub api_bind_addr: String,
+    /// The dashboard's origin — the API's CORS policy allows exactly this
+    /// one (pulse-security.md #6: never `*` in production).
+    pub frontend_url: String,
 }
 
 impl Config {
@@ -28,6 +31,11 @@ impl Config {
             redis_url: env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into()),
             app_env: env::var("APP_ENV").unwrap_or_else(|_| "development".into()),
             api_bind_addr: env::var("API_BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()),
+            frontend_url: non_empty_var("FRONTEND_URL")
+                .unwrap_or_else(|| "http://localhost:3000".into())
+                .trim()
+                .trim_end_matches('/')
+                .to_string(),
         }
     }
 }

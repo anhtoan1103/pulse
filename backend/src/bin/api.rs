@@ -28,7 +28,7 @@ async fn main() -> anyhow::Result<()> {
         info!(?outcome, "admin seed");
     }
 
-    let app = app::router(AppState::new(pool, &auth_config));
+    let app = app::router(AppState::new(pool, &config.frontend_url, &auth_config));
 
     let listener = tokio::net::TcpListener::bind(&config.api_bind_addr).await?;
     info!(addr = %config.api_bind_addr, env = %config.app_env, "pulse-api listening");

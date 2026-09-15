@@ -22,6 +22,7 @@ use tower::ServiceExt;
 
 pub const TEST_JWT_SECRET: &str = "test-secret-that-is-at-least-32-bytes-long";
 pub const PASSWORD: &str = "correct horse battery";
+pub const TEST_FRONTEND_URL: &str = "https://pulse.test";
 
 pub fn auth_config() -> AuthConfig {
     AuthConfig {
@@ -62,7 +63,7 @@ pub struct TestApp {
 impl TestApp {
     /// App with a rate limiter loose enough that ordinary tests never hit it.
     pub fn new(pool: PgPool) -> Self {
-        let state = AppState::new(pool, &auth_config())
+        let state = AppState::new(pool, TEST_FRONTEND_URL, &auth_config())
             .with_auth_rate_limiter(RateLimiter::new(1_000, Duration::from_secs(60)))
             .with_resolver(test_resolver());
         Self::from_state(state)

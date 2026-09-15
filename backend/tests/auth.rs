@@ -236,7 +236,11 @@ async fn disabled_user_cannot_login_and_existing_token_stops_working(pool: PgPoo
 #[sqlx::test(migrator = "MIGRATOR")]
 async fn login_is_rate_limited_per_ip(pool: PgPool) {
     // Production limits (5/min), not the loose test default.
-    let app = TestApp::from_state(AppState::new(pool, &auth_config()));
+    let app = TestApp::from_state(AppState::new(
+        pool,
+        common::TEST_FRONTEND_URL,
+        &auth_config(),
+    ));
 
     for _ in 0..5 {
         assert_eq!(
@@ -261,7 +265,7 @@ async fn rate_limit_uses_client_ip_header_when_configured(pool: PgPool) {
         client_ip_header: Some("CF-Connecting-IP".into()),
         ..auth_config()
     };
-    let app = TestApp::from_state(AppState::new(pool, &config));
+    let app = TestApp::from_state(AppState::new(pool, common::TEST_FRONTEND_URL, &config));
     let login = |ip: &'static str| {
         let app = &app;
         async move {

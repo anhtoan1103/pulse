@@ -11,7 +11,15 @@ use crate::{
     rate_limit::RateLimiter,
     ssrf::HostResolver,
 };
-use axum::{Router, extract::State, http::StatusCode, routing::get};
+use axum::{
+    Router,
+    extract::State,
+    http::{
+        HeaderValue, Method, StatusCode,
+        header::{AUTHORIZATION, CONTENT_TYPE},
+    },
+    routing::get,
+};
 use sqlx::PgPool;
 use std::{sync::Arc, time::Duration};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -29,10 +37,12 @@ pub struct AppState {
     pub client_ip_header: Option<Arc<str>>,
     /// DNS for SSRF validation of monitored URLs.
     pub resolver: Arc<HostResolver>,
+    /// The dashboard's origin — the only one CORS allows (pulse-security.md #6).
+    pub frontend_url: Arc<str>,
 }
 
 impl AppState {
-    pub fn new(pool: PgPool, auth: &AuthConfig) -> Self {
+    pub fn new(pool: PgPool, frontend_url: &str, auth: &AuthConfig) -> Self {
         Self {
             pool,
             jwt: Arc::new(JwtKeys::new(
@@ -42,6 +52,7 @@ impl AppState {
             auth_rate_limiter: Arc::new(RateLimiter::new(AUTH_RATE_LIMIT, AUTH_RATE_WINDOW)),
             client_ip_header: auth.client_ip_header.as_deref().map(Arc::from),
             resolver: Arc::new(HostResolver::System),
+            frontend_url: Arc::from(frontend_url),
         }
     }
 
@@ -65,13 +76,28 @@ pub fn router(state: AppState) -> Router {
         .nest("/incidents", incidents::routes())
         .nest("/admin", admin::routes());
 
+    // Exactly the dashboard's own origin (pulse-security.md #6: never `*` in
+    // production) — read before `with_state` moves `state` away. An invalid
+    // FRONTEND_URL (must be a bare origin, e.g. no path) fails loudly at
+    // startup rather than silently falling back to something permissive.
+    let cors_origin = HeaderValue::from_str(&state.frontend_url).unwrap_or_else(|_| {
+        panic!(
+            "FRONTEND_URL {:?} is not a valid CORS origin",
+            state.frontend_url
+        )
+    });
+    let cors = CorsLayer::new()
+        .allow_origin(cors_origin)
+        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE])
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE]);
+
     Router::new()
         .route("/health", get(health))
         .nest("/api/v1", api_v1)
         .fallback(|| async { ApiError::not_found() })
         .with_state(state)
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive()) // TODO: restrict to FRONTEND_URL before prod (see pulse-security.md #6)
+        .layer(cors)
 }
 
 /// Liveness + DB reachability. Returns 503 (no internal details, per

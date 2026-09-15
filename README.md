@@ -82,6 +82,10 @@ Implement-order steps 1–11 of
   promote-to-admin flow (a new admin comes from `ADMIN_SEED_*`), so locking
   out the last admin would be unrecoverable through the app itself.
 
+- **CORS locked down**: the API only ever declares `FRONTEND_URL` as the
+  allowed origin (never `*`), fixing the `CorsLayer::permissive()` flagged
+  as a pre-production TODO since step 3.
+
 Next step is Cloudflare Tunnel + a real domain (step 12) — the last one in
 the implement order.
 
